@@ -35,7 +35,7 @@ volatile uint8_t sample_position = SAMPLE_LEFT;
 volatile uint16_t left_sample_buffer = 0;
 volatile uint16_t right_sample_buffer = 0;
 
-volatile CRGB leds[120];
+CRGB leds[120];
 
 void setup(void)
 {
@@ -212,10 +212,10 @@ void someCallback() {
 }
 
 volatile unsigned char *spi_data_buffer;
-volatile int (*spi_callback)(void);
+void (*spi_callback)(void);
 
 // Reads the data from the selected ADC
-void initateSPITransfer(unsigned char *buffer, int(*callback)(void))
+void initateSPITransfer(unsigned char *buffer, void(*callback)(void))
 {
 	spi_data_buffer = buffer;
 	spi_callback = callback;
@@ -225,7 +225,6 @@ void initateSPITransfer(unsigned char *buffer, int(*callback)(void))
 // SPI transfer complete
 ISR(SPI_STC_vect)
 {
-	spi_d
 	if (spi_state == SPI_FIRST_BYTE) 
 	{
 		*spi_data_buffer = SPDR << 6;
