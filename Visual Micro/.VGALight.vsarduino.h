@@ -44,7 +44,7 @@ void setup(void);
 void loop(void);
 void startSample(void);
 void stopSample(void);
-void readADC(uint16_t *buffer);
+void someCallback();
 
 #include "C:\Program Files (x86)\Arduino\hardware\arduino\avr\cores\arduino\arduino.h"
 #include "C:\Program Files (x86)\Arduino\hardware\arduino\avr\variants\standard\pins_arduino.h" 

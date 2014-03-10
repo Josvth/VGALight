@@ -21,23 +21,8 @@
 #define BLUE_CS PORTB3
 
 // State encoding
-#define IDLE 0
-#define MEASURE 1
-#define RED_AQUIRE 2
-#define GREEN_AQUIRE 3
-#define BLUE_AQUIRE 4
-#define CONVERT 5
-#define REFRESH 6
-
-volatile uint8_t state = IDLE;
-
-// SPI states
-#define SPI_IDLE 0
-#define SPI_FIRST_BYTE 1
-#define SPI_SECOND_BYTE 2
-
-volatile uint8_t spi_state = SPI_IDLE;
-volatile uint16_t *spi_data_buffer;
+typedef enum {IDLE, MEASURE, RED_AQUIRE, GREEN_AQUIRE, BLUE_AQUIRE, REFRESH} device_state_t;
+volatile device_state_t device_state = IDLE;
 
 // Sample positions
 #define SAMPLE_LEFT 0
@@ -87,7 +72,7 @@ void setup(void)
 void loop(void)
 {
 
-	switch (state) 
+	switch (device_state)
 	{
 	case RED_AQUIRE:
 	case GREEN_AQUIRE:
@@ -222,17 +207,25 @@ void stopSample(void) {
 
 }
 
+void someCallback() {
+
+}
+
+volatile unsigned char *spi_data_buffer;
+volatile int (*spi_callback)(void);
+
 // Reads the data from the selected ADC
-void readADC(uint16_t *buffer) 
+void initateSPITransfer(unsigned char *buffer, int(*callback)(void))
 {
 	spi_data_buffer = buffer;
-	spi_state = SPI_FIRST_BYTE;
+	spi_callback = callback;
 	SPDR = 0xFF;					// Initiate transfer
 }
 
 // SPI transfer complete
 ISR(SPI_STC_vect)
 {
+	spi_d
 	if (spi_state == SPI_FIRST_BYTE) 
 	{
 		*spi_data_buffer = SPDR << 6;
