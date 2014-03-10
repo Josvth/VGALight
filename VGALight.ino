@@ -21,8 +21,8 @@
 #define BLUE_CS PORTB3
 
 // State encoding
-typedef enum {IDLE, MEASURE, RED_AQUIRE, GREEN_AQUIRE, BLUE_AQUIRE, REFRESH} device_state_t;
-volatile device_state_t device_state = IDLE;
+enum device_state_t { IDLE, MEASURE, RED_AQUIRE, GREEN_AQUIRE, BLUE_AQUIRE, REFRESH };
+volatile device_state_t device_state = device_state_t::IDLE;
 
 // Sample positions
 #define SAMPLE_LEFT 0
@@ -170,49 +170,56 @@ ISR(TIMER2_COMPA_vect)
 
 }
 
-void startSample(void) {
+void startSample(void) 
+{
 
-	if (state == RED_AQUIRE) {
+	if (state == RED_AQUIRE) 
+	{
 		PORTB |= (1 << RED_CS);		// Put the red adc in sample mode
-	}
-
-	if (state == GREEN_AQUIRE) {
+	} else if (state == GREEN_AQUIRE) 
+	{
 		PORTB |= (1 << GREEN_CS);	// Put the green adc in sample mode
-	}
-
-	if (state == BLUE_AQUIRE) {
+	} else if (state == BLUE_AQUIRE) 
+	{
 		PORTB |= (1 << BLUE_CS);	// Put the blue adc in sample mode
 	}
 
-	TCNT2 = 0;					// Set timer 2 to 0
 	TCCR2B |= (1 << CS20);		// Start timer 2 with a clock of 16MHz
 
 }
 
-void stopSample(void) {
+void stopSample(void) 
+{
 	
-	if (state == RED_AQUIRE) {
+	if (state == RED_AQUIRE) 
+	{
 		PORTB &= ~(1 << RED_CS);	// Put the red adc in convert mode
-	}
-
-	if (state == GREEN_AQUIRE) {
+	} else if (state == GREEN_AQUIRE) 
+	{
 		PORTB &= ~(1 << GREEN_CS);	// Put the green adc in convert mode
-	}
-
-	if (state == BLUE_AQUIRE) {
+	} else if (state == BLUE_AQUIRE) 
+	{
 		PORTB &= ~(1 << BLUE_CS);	// Put the blue adc in convert mode
 	}
 
 	TCCR2B &= ~(1 << CS20);			// Stop timer 2
+	TCNT2 = 0;						// Set timer 2 to 0
+
+	if (/* left sample */) {
+		initateSPITransfer()
+	}
 
 }
 
 void someCallback() {
-
+	initateSPITransfer();
 }
 
-volatile unsigned char *spi_data_buffer;
-void (*spi_callback)(void);
+enum spi_state_t { IDLE, FIRST_BYTE_TRANSFER, SECOND_BYTE_TRANSFER };
+
+volatile spi_state_t spi_state = spi_state_t::IDLE;
+volatile uint16_t *spi_data_buffer;
+void (*volatile spi_callback)(void);
 
 // Reads the data from the selected ADC
 void initateSPITransfer(unsigned char *buffer, void(*callback)(void))
@@ -225,22 +232,23 @@ void initateSPITransfer(unsigned char *buffer, void(*callback)(void))
 // SPI transfer complete
 ISR(SPI_STC_vect)
 {
-	if (spi_state == SPI_FIRST_BYTE) 
+	
+	if (spi_state == FIRST_BYTE_TRANSFER) 
 	{
 		*spi_data_buffer = SPDR << 6;
-		spi_state = SPI_SECOND_BYTE;
+		spi_state = SECOND_BYTE_TRANSFER;
 		SPDR = 0xFF;					// Initiate transfer
 		return;
 	}
-
-	if (spi_state == SPI_SECOND_BYTE) 
+		
+	if (spi_state == SECOND_BYTE_TRANSFER)
 	{
 		*spi_data_buffer &= SPDR >> 1;
 		spi_state = IDLE;
 
-		if (sample_position == SAMPLE_LEFT) // If we just did a left sample we initiate another sample to get the data
-		{	 
-
+		if (spi_callback != NULL)
+		{
+			*(spi_callback)();
 		}
 
 		return;
