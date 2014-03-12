@@ -60,6 +60,9 @@ void setup(void)
 	// Setup HSYNC timer1
 	TIMSK1 |= (1 << OCIE1B) | (1 << OCIE1A);						// Enable interrupt on compare A and B of timer 1
 
+	OCR1A = 55;
+	OCR1B = 301 - SAMPLE_TIME;
+
 	// Setup sample timer2
 	TIMSK2 |= (1 << OCIE2B);										// Enable interrupt on compare B of timer 1
 	OCR2B = SAMPLE_TIME;											// Set compare register B to the sample time
@@ -79,7 +82,7 @@ void setup(void)
 
 	FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS);   
 
-	
+	EIMSK |= (1 << INT1);						// Enable HSYNC external interrupt	
 
 
 }
@@ -104,58 +107,58 @@ void loop(void)
 // Falling edge VSYNC
 ISR(INT0_vect) 
 {	
-	switch (state)
-	{
-	case IDLE:
+	//switch (state)
+	//{
+	//case IDLE:
 
-		state = RED_AQUIRE;
+	//	state = RED_AQUIRE;
 
-		//state = MEASURE;
+	//	//state = MEASURE;
 
-		EIMSK |= (1 << INT1);						// Enable HSYNC external interrupt	
+	//	EIMSK |= (1 << INT1);						// Enable HSYNC external interrupt	
 
-		break;
-	case MEASURE:
-		// TODO THIS STATE
-		break;
-	case RED_AQUIRE:
+	//	break;
+	//case MEASURE:
+	//	// TODO THIS STATE
+	//	break;
+	//case RED_AQUIRE:
 
-		// Get data for right side of last line
-		
-		PORTB &= ~(1 << RED_CS);	// Set red ADC in sample and hold mode	
-		PORTB |= (1 << GREEN_CS);	// Set green ADC in convert mode
+	//	// Get data for right side of last line
+	//	
+	//	PORTB &= ~(1 << RED_CS);	// Set red ADC in sample and hold mode	
+	//	PORTB |= (1 << GREEN_CS);	// Set green ADC in convert mode
 
-		state = GREEN_AQUIRE;
-		break;
-	case GREEN_AQUIRE:
+	//	state = GREEN_AQUIRE;
+	//	break;
+	//case GREEN_AQUIRE:
 
-		// Get data for right side of last line
+	//	// Get data for right side of last line
 
-		PORTB &= ~(1 << GREEN_CS);	// Set green ADC in sample and hold mode	
-		PORTB |= (1 << BLUE_CS);	// Set blue ADC in convert mode
+	//	PORTB &= ~(1 << GREEN_CS);	// Set green ADC in sample and hold mode	
+	//	PORTB |= (1 << BLUE_CS);	// Set blue ADC in convert mode
 
-		state = BLUE_AQUIRE;
-		break;
-	case BLUE_AQUIRE:
-		
-		TCCR1B &= ~(1 << CS10);		// Disable timer 1
-		EIMSK |= (1 << INT1);		// Disable HSYNC external interrupt	
+	//	state = BLUE_AQUIRE;
+	//	break;
+	//case BLUE_AQUIRE:
+	//	
+	//	TCCR1B &= ~(1 << CS10);		// Disable timer 1
+	//	EIMSK |= (1 << INT1);		// Disable HSYNC external interrupt	
 
-		// Get data for right side of last line
+	//	// Get data for right side of last line
 
-		PORTB &= ~(1 << BLUE_CS);	// Set blue ADC in sample and hold mode	
-		
-		state = REFRESH;
-		break;
-	case REFRESH:
-		
-		PORTB |= (1 << RED_CS);		// Set red ADC in convert mode
+	//	PORTB &= ~(1 << BLUE_CS);	// Set blue ADC in sample and hold mode	
+	//	
+	//	state = REFRESH;
+	//	break;
+	//case REFRESH:
+	//	
+	//	PORTB |= (1 << RED_CS);		// Set red ADC in convert mode
 
-		state = RED_AQUIRE;
-	default:
-		state = IDLE;
-		break;
-	}
+	//	state = RED_AQUIRE;
+	//default:
+	//	state = IDLE;
+	//	break;
+	//}
 }
 
 // Falling edge HSYNC
@@ -167,19 +170,22 @@ ISR(INT1_vect) {
 // Begin of left sampling
 ISR(TIMER1_COMPA_vect) 
 {
-	startSample();
+	PORTB |= (1 << RED_CS);		// Put the red adc in sample mode
+	//startSample();
 }
 
 // Begin of right sampling
 ISR(TIMER1_COMPB_vect) 
 {
-	startSample();
+	PORTB |= (1 << RED_CS);		// Put the red adc in sample mode
+	//startSample();
 }
 
 // End of sampling time
 ISR(TIMER2_COMPA_vect) 
 {
-	stopSample();
+	PORTB &= ~(1 << RED_CS);	// Put the red adc in convert mode
+	// stopSample();
 
 	// TODO Start SPI transfer
 
