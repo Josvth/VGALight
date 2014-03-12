@@ -35,7 +35,15 @@ volatile uint8_t sample_position = SAMPLE_LEFT;
 volatile uint16_t left_sample_buffer = 0;
 volatile uint16_t right_sample_buffer = 0;
 
-CRGB leds[120];
+// ledstrip
+#define NUM_LEDS 120
+#define DATA_PIN 11
+#define CLOCK_PIN 13
+CRGB leds[NUM_LEDS];
+
+#define NUM_LINES_PER_LED 20 
+long counterlinesperled = 0;  /// counts lines per led
+long led = 0; //which led?  
 
 void setup(void)
 {
@@ -66,6 +74,13 @@ void setup(void)
 	EIMSK |= (1 << INT0);						// Enable VSYNC external interrupt
 
 	sei();										// Turn on interrupts
+
+
+
+	FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS);   
+
+	
+
 
 }
 
@@ -243,7 +258,7 @@ ISR(SPI_STC_vect)
 		
 	if (spi_state == SECOND_BYTE_TRANSFER)
 	{
-		*spi_data_buffer &= SPDR >> 1;
+		*spi_data_buffer &= SPDR >> 1;                        //// dit moet een OR zijn toch?     en spi_data_buffer gewoon 8 bits maken?? en dan zo shiften dat alleen de juist overblijven? Dan ist direct goed:)
 		spi_state = IDLE;
 
 		if (spi_callback != NULL)
@@ -254,5 +269,24 @@ ISR(SPI_STC_vect)
 		return;
 	}
 
+
+
+
+	// op v-sync alles resetten?     en deze functie elke lijn aan roepen?
+	void which_led(){
+		counterlinesperled++;
+		if (counterlinesperled == NUM_LINES_PER_LED){
+			led++
+			counterlinesperled = 0;
+		}	
+	}
+
+	// color: means r g b. led: which led are we?  data_buffer is the *spi_data_buffer    kan dat?
+	void retrieve_and_set(char data_buffer, int led, char color, long linenumberled){
+		//linkerkant
+		leds[led].color = (linenumberled * leds[led].color + CRGB::data_buffer) / (linenumberled + 1);
+		//rechterkant
+		leds[NUM_LEDS-led].color = (linenumberled * leds[led].color + CRGB::data_buffer) / (linenumberled + 1);
+	}
 	
 }
