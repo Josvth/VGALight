@@ -233,6 +233,15 @@ volatile spi_state_t spi_state = SPI_IDLE;
 volatile uint16_t *spi_data_buffer;
 void (*volatile spi_callback)(void);
 
+
+/// IK HEB HIER IETS TOEGEVOEGD
+
+
+
+
+
+
+
 //// Reads the data from the selected ADC
 //void initateSPITransfer(unsigned char *buffer, void(*callback)(void))
 //{
