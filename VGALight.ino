@@ -21,8 +21,8 @@
 #define BLUE_CS PORTB3
 
 // State encoding
-enum device_state_t { IDLE, MEASURE, RED_AQUIRE, GREEN_AQUIRE, BLUE_AQUIRE, REFRESH };
-volatile device_state_t device_state = device_state_t::IDLE;
+typedef enum { IDLE, MEASURE, RED_AQUIRE, GREEN_AQUIRE, BLUE_AQUIRE, REFRESH } device_state_t;
+device_state_t device_state = IDLE;
 
 // Sample positions
 #define SAMPLE_LEFT 0
@@ -89,19 +89,8 @@ void setup(void)
 
 void loop(void)
 {
-
-	switch (device_state)
-	{
-	case RED_AQUIRE:
-	case GREEN_AQUIRE:
-	case BLUE_AQUIRE:
-		// Crunch data from ADC's
-		break;
-	case REFRESH:
-		// Refresh led strip
-		break;
-	}
-
+	//PORTB |= (1 << GREEN_CS);		// Put the red adc in sample mode
+	//PORTB &= ~(1 << GREEN_CS);	// Put the red adc in convert mode
 }
 
 // Falling edge VSYNC
@@ -163,8 +152,14 @@ ISR(INT0_vect)
 
 // Falling edge HSYNC
 ISR(INT1_vect) {
-	TCNT1	= 0;					// Set timer 1 to zero
-	TCCR1B |= (1 << CS10);			// Enable timer 1 with a clock of 16MHz
+	//TCNT1	= 0;					// Set timer 1 to zero
+	//TCCR1B |= (1 << CS10);			// Enable timer 1 with a clock of 16MHz
+
+	PORTB |= (1 << GREEN_CS);		// Put the red adc in sample mode
+	PORTB |= (1 << GREEN_CS);		// Put the red adc in sample mode
+	PORTB |= (1 << GREEN_CS);		// Put the red adc in sample mode
+	PORTB &= ~(1 << GREEN_CS);	// Put the red adc in convert mode
+
 }
 
 // Begin of left sampling
@@ -191,108 +186,104 @@ ISR(TIMER2_COMPA_vect)
 
 }
 
-void startSample(void) 
-{
+//void startSample(void) 
+//{
+//
+//	if (state == RED_AQUIRE) 
+//	{
+//		PORTB |= (1 << RED_CS);		// Put the red adc in sample mode
+//	} else if (state == GREEN_AQUIRE) 
+//	{
+//		PORTB |= (1 << GREEN_CS);	// Put the green adc in sample mode
+//	} else if (state == BLUE_AQUIRE) 
+//	{
+//		PORTB |= (1 << BLUE_CS);	// Put the blue adc in sample mode
+//	}
+//
+//	TCCR2B |= (1 << CS20);		// Start timer 2 with a clock of 16MHz
+//
+//}
+//
+//void stopSample(void) 
+//{
+//	
+//	if (state == RED_AQUIRE) 
+//	{
+//		PORTB &= ~(1 << RED_CS);	// Put the red adc in convert mode
+//	} else if (state == GREEN_AQUIRE) 
+//	{
+//		PORTB &= ~(1 << GREEN_CS);	// Put the green adc in convert mode
+//	} else if (state == BLUE_AQUIRE) 
+//	{
+//		PORTB &= ~(1 << BLUE_CS);	// Put the blue adc in convert mode
+//	}
+//
+//	TCCR2B &= ~(1 << CS20);			// Stop timer 2
+//	TCNT2 = 0;						// Set timer 2 to 0
+//
+//}
 
-	if (state == RED_AQUIRE) 
-	{
-		PORTB |= (1 << RED_CS);		// Put the red adc in sample mode
-	} else if (state == GREEN_AQUIRE) 
-	{
-		PORTB |= (1 << GREEN_CS);	// Put the green adc in sample mode
-	} else if (state == BLUE_AQUIRE) 
-	{
-		PORTB |= (1 << BLUE_CS);	// Put the blue adc in sample mode
-	}
+//void someCallback() {
+//	initateSPITransfer();
+//}
 
-	TCCR2B |= (1 << CS20);		// Start timer 2 with a clock of 16MHz
+typedef enum { SPI_IDLE, FIRST_BYTE_TRANSFER, SECOND_BYTE_TRANSFER } spi_state_t;
 
-}
-
-void stopSample(void) 
-{
-	
-	if (state == RED_AQUIRE) 
-	{
-		PORTB &= ~(1 << RED_CS);	// Put the red adc in convert mode
-	} else if (state == GREEN_AQUIRE) 
-	{
-		PORTB &= ~(1 << GREEN_CS);	// Put the green adc in convert mode
-	} else if (state == BLUE_AQUIRE) 
-	{
-		PORTB &= ~(1 << BLUE_CS);	// Put the blue adc in convert mode
-	}
-
-	TCCR2B &= ~(1 << CS20);			// Stop timer 2
-	TCNT2 = 0;						// Set timer 2 to 0
-
-	if (/* left sample */) {
-		initateSPITransfer()
-	}
-
-}
-
-void someCallback() {
-	initateSPITransfer();
-}
-
-enum spi_state_t { IDLE, FIRST_BYTE_TRANSFER, SECOND_BYTE_TRANSFER };
-
-volatile spi_state_t spi_state = spi_state_t::IDLE;
+volatile spi_state_t spi_state = SPI_IDLE;
 volatile uint16_t *spi_data_buffer;
 void (*volatile spi_callback)(void);
 
-// Reads the data from the selected ADC
-void initateSPITransfer(unsigned char *buffer, void(*callback)(void))
-{
-	spi_data_buffer = buffer;
-	spi_callback = callback;
-	SPDR = 0xFF;					// Initiate transfer
-}
+//// Reads the data from the selected ADC
+//void initateSPITransfer(unsigned char *buffer, void(*callback)(void))
+//{
+//	spi_data_buffer = buffer;
+//	spi_callback = callback;
+//	SPDR = 0xFF;					// Initiate transfer
+//}
 
-// SPI transfer complete
-ISR(SPI_STC_vect)
-{
-	
-	if (spi_state == FIRST_BYTE_TRANSFER) 
-	{
-		*spi_data_buffer = SPDR << 6;
-		spi_state = SECOND_BYTE_TRANSFER;
-		SPDR = 0xFF;					// Initiate transfer
-		return;
-	}
-		
-	if (spi_state == SECOND_BYTE_TRANSFER)
-	{
-		*spi_data_buffer &= SPDR >> 1;                        //// dit moet een OR zijn toch?     en spi_data_buffer gewoon 8 bits maken?? en dan zo shiften dat alleen de juist overblijven? Dan ist direct goed:)
-		spi_state = IDLE;
-
-		if (spi_callback != NULL)
-		{
-			*(spi_callback)();
-		}
-
-		return;
-	}
-
-
-
-
-	// op v-sync alles resetten?     en deze functie elke lijn aan roepen?
-	void which_led(){
-		counterlinesperled++;
-		if (counterlinesperled == NUM_LINES_PER_LED){
-			led++
-			counterlinesperled = 0;
-		}	
-	}
-
-	// color: means r g b. led: which led are we?  data_buffer is the *spi_data_buffer    kan dat?
-	void retrieve_and_set(char data_buffer, int led, char color, long linenumberled){
-		//linkerkant
-		leds[led].color = (linenumberled * leds[led].color + CRGB::data_buffer) / (linenumberled + 1);
-		//rechterkant
-		leds[NUM_LEDS-led].color = (linenumberled * leds[led].color + CRGB::data_buffer) / (linenumberled + 1);
-	}
-	
-}
+//// SPI transfer complete
+//ISR(SPI_STC_vect)
+//{
+//	
+//	if (spi_state == FIRST_BYTE_TRANSFER) 
+//	{
+//		*spi_data_buffer = SPDR << 6;
+//		spi_state = SECOND_BYTE_TRANSFER;
+//		SPDR = 0xFF;					// Initiate transfer
+//		return;
+//	}
+//		
+//	if (spi_state == SECOND_BYTE_TRANSFER)
+//	{
+//		*spi_data_buffer |= SPDR >> 1;                  
+//		spi_state = SPI_IDLE;
+//
+//		if (spi_callback != NULL)
+//		{
+//			*(spi_callback)();
+//		}
+//
+//		return;
+//	}
+//
+//
+//
+//
+//	//// op v-sync alles resetten?     en deze functie elke lijn aan roepen?
+//	//void which_led(){
+//	//	counterlinesperled++;
+//	//	if (counterlinesperled == NUM_LINES_PER_LED){
+//	//		led++
+//	//		counterlinesperled = 0;
+//	//	}	
+//	//}
+//
+//	//// color: means r g b. led: which led are we?  data_buffer is the *spi_data_buffer    kan dat?
+//	//void retrieve_and_set(char data_buffer, int led, char color, long linenumberled){
+//	//	//linkerkant
+//	//	leds[led].color = (linenumberled * leds[led].color + CRGB::data_buffer) / (linenumberled + 1);
+//	//	//rechterkant
+//	//	leds[NUM_LEDS-led].color = (linenumberled * leds[led].color + CRGB::data_buffer) / (linenumberled + 1);
+//	//}
+//	
+//}
