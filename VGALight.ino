@@ -4,12 +4,16 @@
 //#include <FastLED.h>
 #include <stdint.h>
 
-// Sample timings
+// Timings
 #define FRONT_PORCH 67
+#define VISIBLE_AREA 256
 #define BACK_PORCH 0
-#define SAMPLE_TIME 32
 
 #define HSYNC_PULSE_WIDTH 28
+
+#define MEASURE_TIME	32
+#define LEFT_MEASURE	FRONT_PORCH
+#define RIGHT_MEASURE	FRONT_PORCH + VISIBLE_AREA - MEASURE_TIME
 
 // Delays due to slowness of arduino
 #define HSYNC_INTERRUPT_DELAY 12
