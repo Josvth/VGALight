@@ -28,6 +28,7 @@
 #define RED_CS PORTD4
 #define GREEN_CS PORTD5
 #define BLUE_CS PORTD6
+#define AVERAGE_S PORTD7
 
 // State encoding
 typedef enum { IDLE, MEASURE, RED_AQUIRE, GREEN_AQUIRE, BLUE_AQUIRE, REFRESH } device_state_t;
@@ -72,7 +73,7 @@ void setup(void)
 	// Setup ports
 	DDRD &= ~((1 << VSYNC) | (1 << HSYNC));							// Set trigger ports to inputs
 	
-	DDRD |= (1 << RED_CS) | (1 << GREEN_CS) | (1 << BLUE_CS) | (1 << 5);		// Set select ports to outputs
+	DDRD |= (1 << RED_CS) | (1 << GREEN_CS) | (1 << BLUE_CS) | (1 << AVERAGE_S);		// Set select ports to outputs
 	DDRB |= (1 << LED_PIN);											// Set led pin output
 
 	// Set port initials
@@ -231,31 +232,31 @@ ISR(INT1_vect, ISR_NAKED) {
 	TCCR1B |= (1 << CS10);								// Enable timer 1 with a clock of 16MHz
 	PORTD &= ~(1 << BLUE_CS);			
 	
+	// TODO Start SPI TRANSFER
+
 	SREG = cSREG;		// We restore our status register
 	reti();				// We jump back
 }
 
-// Begin of left sampling
+// Begin of averaging
 ISR(TIMER1_COMPA_vect, ISR_NAKED)
 {
 	char cSREG = SREG;	// We templorary store our status register
 
-	PORTD |= (1 << RED_CS);		// Put the red adc in sample mode
-	//startSample();
+	PORTD &= ~(1 << AVERAGE_S);	// We start averaging
+	PORTD |= (1 << RED_CS);		// Put the adc in hold mode
 
 	SREG = cSREG;		// We restore our status register
 	reti();				// We jump back
 }
 
-// Begin of right sampling
+// End of averaging start of sample
 ISR(TIMER1_COMPB_vect, ISR_NAKED)
 {
 	char cSREG = SREG;	// We templorary store our status register
 
-	PORTD &= ~(1 << RED_CS);		// Put the red adc in convert mode
-	SPI.transfer(0xFF);
-	SPI.transfer(0xFF);
-		//stopSample();
+	PORTD &= ~(1 << RED_CS);		// Put the adc in sample mode
+	PORTD |= (1 << AVERAGE_S);		// We end averaging
 
 	SREG = cSREG;		// We restore our status register
 	reti();				// We jump back
