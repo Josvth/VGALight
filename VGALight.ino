@@ -5,16 +5,19 @@
 #include <stdint.h>
 
 // Timings
-#define FRONT_PORCH		67
-#define VISIBLE_AREA	256
-#define BACK_PORCH		0
+#define HSYNC_BACK_PORCH		80
+
+#define COLOUR_FRONT_PORCH		67
+#define COLOUR_VISIBLE_AREA		256
+#define COLOUR_BACK_PORCH		0
 
 // Ideal measure timings
 #define MEASURE_TIME	32
-#define LEFT_MEASURE	FRONT_PORCH
-#define RIGHT_MEASURE	FRONT_PORCH + VISIBLE_AREA - MEASURE_TIME
+#define LEFT_MEASURE	COLOUR_FRONT_PORCH
+#define RIGHT_MEASURE	COLOUR_FRONT_PORCH + COLOUR_VISIBLE_AREA - MEASURE_TIME
 
 // Delays
+#define VSYNC_INTERRUPT_DELAY	20
 #define HSYNC_PULSE_WIDTH		28
 #define HSYNC_INTERRUPT_DELAY	12
 #define COMPARE_INTERRUPT_DELAY 21
@@ -65,16 +68,33 @@ void setup(void)
 	// Set port initials
 	PORTD |= (1 << RED_CS) | (1 << GREEN_CS) | (1 << BLUE_CS) | (1 << MEASURE_S);	// Set all adc's into sample and hold mode
 
-	// Setup HSYNC timer1
-	TCCR1A = 0x00;
-	TCCR1B = 0x00;
-	TCCR1C = 0x00;
-	TCNT1  = 0x00;
+	// Setup sample timer1
+	TCCR1A	= 0x00;
+	TCCR1B	= 0x00;
+	TCCR1C	= 0x00;
+	TCNT1	= 0x00;
+	OCR1A	= 0x00;
+	OCR1B	= 0x00;
 
 	TIMSK1 |= (1 << OCIE1B) | (1 << OCIE1A);						// Enable interrupt on compare A and B of timer 1
 
 	OCR1A = LEFT_MEASURE - COMPARE_INTERRUPT_DELAY;
-	OCR1B = LEFT_MEASURE + VISIBLE_AREA - COMPARE_INTERRUPT_DELAY;
+	OCR1B = LEFT_MEASURE + COLOUR_VISIBLE_AREA - COMPARE_INTERRUPT_DELAY;
+
+	// Setup HSYNC start timer2
+	TCCR2A	= 0x00;
+	TCCR2B	= 0x00;
+	TCNT2	= 0x00;
+	OCR2A	= 0x00;
+	OCR2B	= 0x00;
+	TIMSK2	= 0x00;
+	TIFR2	= 0x00;
+	ASSR	= 0x00;
+	GTCCR	= 0x00;
+
+	TIMSK2 |= (1 << OCIE2A);									// Enable interrupt on compare A of timer 2
+	
+	OCR2A = HSYNC_BACK_PORCH - COMPARE_INTERRUPT_DELAY;			// Set compare A value
 
 	// Setup external interrupts
 	EICRA |= (1 << ISC11) | (1 << ISC01);		// External interrupt on falling edge of VSYNC and HSYNC
