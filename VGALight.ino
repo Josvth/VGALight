@@ -1,289 +1,260 @@
 
-#include <stdint.h>
+#include <SPI.h>
 #include <Arduino.h>
 #include <FastLED.h>
+#include <stdint.h>
 
-// Sample timings
-#define FRONT_PORCH 0
-#define BACK_PORCH 0
-#define SAMPLE_TIME 0
+// Timings
+#define HSYNC_BACK_PORCH		80
+
+#define COLOUR_FRONT_PORCH		67
+#define COLOUR_VISIBLE_AREA		256
+#define COLOUR_BACK_PORCH		0
+
+// Ideal measure timings
+#define MEASURE_TIME	32
+#define LEFT_MEASURE	COLOUR_FRONT_PORCH
+#define RIGHT_MEASURE	COLOUR_FRONT_PORCH + COLOUR_VISIBLE_AREA - MEASURE_TIME
+
+// Delays
+#define VSYNC_PULSE_WIDTH		20
+#define VSYNC_INTERRUPT_DELAY	20
+
+#define HSYNC_PULSE_WIDTH		28
+#define HSYNC_INTERRUPT_DELAY	12
+
+#define COMPARE_INTERRUPT_DELAY 21
 
 // We only use Port D for external triggers and pin changes
 #define VSYNC PORTD2
 #define HSYNC PORTD3
-#define RGB PORTD4
 
-// And we use only Port B for our outputing and SPI
-#define LED_PIN PORTB0
+#define LED_DATA_PIN 8
 
-#define RED_CS PORTB1
-#define GREEN_CS PORTB2
-#define BLUE_CS PORTB3
+#define RED_CS PORTD4
+#define GREEN_CS PORTD5
+#define BLUE_CS PORTD6
+#define MEASURE_S PORTD7
 
 // State encoding
-typedef enum { IDLE, MEASURE, RED_AQUIRE, GREEN_AQUIRE, BLUE_AQUIRE, REFRESH } device_state_t;
+typedef enum { IDLE, MEASURE, REFRESH } device_state_t;
 device_state_t device_state = IDLE;
 
-// Sample positions
-#define SAMPLE_LEFT 0
-#define SAMPLE_DUMMY 1
-#define SAMPLE_RIGHT 2
+typedef enum { RED_MEASURE, GREEN_MEASURE, BLUE_MEASURE } measure_state_t;
+measure_state_t measure_state = RED_MEASURE;
 
-volatile uint8_t sample_position = SAMPLE_LEFT;
-
-// Sample buffers
-volatile uint16_t left_sample_buffer = 0;
-volatile uint16_t right_sample_buffer = 0;
-
-// ledstrip
+// Led strip
 #define NUM_LEDS 120
-#define DATA_PIN 11
-#define CLOCK_PIN 13
+#define NUM_LINES_PER_LED 20 
+
 CRGB leds[NUM_LEDS];
 
-#define NUM_LINES_PER_LED 20 
-long counterlinesperled = 0;  /// counts lines per led
-long led = 0; //which led?  
+uint8_t current_led = 0;	//which led?  
+uint8_t current_lines = 0;  // counts lines per led
+
+volatile uint8_t adc_data = 0;
 
 void setup(void)
 {
 	
+	// Setup SPI
+	SPI.begin();
+	SPI.setBitOrder(MSBFIRST);
+	SPI.setClockDivider(SPI_CLOCK_DIV2);
+	SPI.setDataMode(SPI_MODE1);
+
 	// Setup ports
-	DDRD &= ~((1 << VSYNC) | (1 << HSYNC) | (1 << RGB));			// Set trigger ports to inputs
+	DDRD &= ~((1 << VSYNC) | (1 << HSYNC));							// Set trigger ports to inputs
 	
-	DDRB |= (1 << RED_CS) | (1 << GREEN_CS) | (1 << BLUE_CS);		// Set select ports to outputs
-	DDRB |= (1 << LED_PIN);											// Set led pin output
+	DDRD |= (1 << RED_CS) | (1 << GREEN_CS) | (1 << BLUE_CS) | (1 << MEASURE_S);	// Set select ports to outputs
 
 	// Set port initials
-	PORTB |= (1 << RED_CS) | (1 << GREEN_CS) | (1 << BLUE_CS);		// Set all adc's into sample and hold mode
+	PORTD |= (1 << RED_CS) | (1 << GREEN_CS) | (1 << BLUE_CS) | (1 << MEASURE_S);	// Set all adc's into sample and hold mode
 
-	// Setup HSYNC timer1
+	// Setup sample timer1
+	TCCR1A	= 0x00;
+	TCCR1B	= 0x00;
+	TCCR1C	= 0x00;
+	TCNT1	= 0x00;
+	OCR1A	= 0x00;
+	OCR1B	= 0x00;
+
 	TIMSK1 |= (1 << OCIE1B) | (1 << OCIE1A);						// Enable interrupt on compare A and B of timer 1
 
-	OCR1A = 55;
-	OCR1B = 301 - SAMPLE_TIME;
+	OCR1A = LEFT_MEASURE - COMPARE_INTERRUPT_DELAY;
+	OCR1B = LEFT_MEASURE + COLOUR_VISIBLE_AREA - COMPARE_INTERRUPT_DELAY;
 
-	// Setup sample timer2
-	TIMSK2 |= (1 << OCIE2B);										// Enable interrupt on compare B of timer 1
-	OCR2B = SAMPLE_TIME;											// Set compare register B to the sample time
+	// Setup HSYNC start timer2
+	TCCR2A	= 0x00;
+	TCCR2B	= 0x00;
+	TCNT2	= 0x00;
+	OCR2A	= 0x00;
+	OCR2B	= 0x00;
+	TIMSK2	= 0x00;
+	TIFR2	= 0x00;
+	ASSR	= 0x00;
+	GTCCR	= 0x00;
 
-	// Setup SPI
-	SPCR |= (1 << SPE) | (1 << MSTR) | (1 << CPHA);					// Enable SPI as a master with sampling on the falling edge
-	SPSR |= (1 << SPI2X);											// Set SPI clock to 8 MHz
+	TIMSK2 |= (1 << OCIE2A);									// Enable interrupt on compare A of timer 2
+	
+	OCR2A = HSYNC_BACK_PORCH - COMPARE_INTERRUPT_DELAY;			// Set compare A value
 
 	// Setup external interrupts
 	EICRA |= (1 << ISC11) | (1 << ISC01);		// External interrupt on falling edge of VSYNC and HSYNC
 
 	EIMSK |= (1 << INT0);						// Enable VSYNC external interrupt
 
+	FastLED.addLeds<NEOPIXEL, LED_DATA_PIN>(leds, NUM_LEDS);
+
 	sei();										// Turn on interrupts
-
-
-
-	FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS);   
-
-	EIMSK |= (1 << INT1);						// Enable HSYNC external interrupt	
-
 
 }
 
 void loop(void)
 {
-	//PORTB |= (1 << GREEN_CS);		// Put the red adc in sample mode
-	//PORTB &= ~(1 << GREEN_CS);	// Put the red adc in convert mode
+	if (device_state == MEASURE) {
+		convertADCData();
+		return;
+	}
+
+	if (device_state == REFRESH) {
+		 
+		return;
+	}
+}
+
+void convertADCData() {
+	uint8_t normalized_data = adc_data / NUM_LINES_PER_LED;
+	if (measure_state == RED_MEASURE) {
+		leds[current_led].r += normalized_data;
+		leds[current_led + 60].r += normalized_data;
+	}
+	else if (measure_state == GREEN_MEASURE) {
+		leds[current_led].g += normalized_data;
+		leds[current_led + 60].g += normalized_data;
+	}
+	else if (measure_state == BLUE_MEASURE) {
+		leds[current_led].b += normalized_data;
+		leds[current_led + 60].b += normalized_data;
+	}
+	if (current_lines <= NUM_LINES_PER_LED) {
+		current_lines + 1;
+	}
+	else {
+		current_lines = 0;
+		if (current_led + 1 < NUM_LEDS / 2) {
+			current_led++;
+		}
+	}
+	adc_data = 0;
 }
 
 // Falling edge VSYNC
 ISR(INT0_vect) 
 {	
-	//switch (state)
-	//{
-	//case IDLE:
+	
+	EIMSK &= ~(1 << INT1);						// Disable HSYNC external interrupt	
+	TCCR1B = 0x00;								// Disable timer 1
 
-	//	state = RED_AQUIRE;
+	if (device_state == IDLE || device_state == REFRESH) {
 
-	//	//state = MEASURE;
+		TCNT2 = VSYNC_PULSE_WIDTH + VSYNC_INTERRUPT_DELAY;	// Set timer 2 to zero plus our offset due to falling edge triggering and trigger delay
+		TCCR2B |= (1 << CS22);								// Enable timer 2 with a clock of 16MHz / 64
 
-	//	EIMSK |= (1 << INT1);						// Enable HSYNC external interrupt	
+		device_state = MEASURE;
 
-	//	break;
-	//case MEASURE:
-	//	// TODO THIS STATE
-	//	break;
-	//case RED_AQUIRE:
+	} else if (device_state == MEASURE) {
+		
+		convertADCData();
+		current_lines = 0;
+		current_led = 0;
 
-	//	// Get data for right side of last line
-	//	
-	//	PORTB &= ~(1 << RED_CS);	// Set red ADC in sample and hold mode	
-	//	PORTB |= (1 << GREEN_CS);	// Set green ADC in convert mode
+		if (measure_state == RED_MEASURE) {
+			measure_state = GREEN_MEASURE;
 
-	//	state = GREEN_AQUIRE;
-	//	break;
-	//case GREEN_AQUIRE:
+			TCNT2 = VSYNC_PULSE_WIDTH + VSYNC_INTERRUPT_DELAY;	// Set timer 2 to zero plus our offset due to falling edge triggering and trigger delay
+			TCCR2B |= (1 << CS22);								// Enable timer 2 with a clock of 16MHz / 64
 
-	//	// Get data for right side of last line
+		}
+		else if (measure_state == GREEN_MEASURE) {
+			measure_state = BLUE_MEASURE;
 
-	//	PORTB &= ~(1 << GREEN_CS);	// Set green ADC in sample and hold mode	
-	//	PORTB |= (1 << BLUE_CS);	// Set blue ADC in convert mode
+			TCNT2 = VSYNC_PULSE_WIDTH + VSYNC_INTERRUPT_DELAY;	// Set timer 2 to zero plus our offset due to falling edge triggering and trigger delay
+			TCCR2B |= (1 << CS22);								// Enable timer 2 with a clock of 16MHz / 64
 
-	//	state = BLUE_AQUIRE;
-	//	break;
-	//case BLUE_AQUIRE:
-	//	
-	//	TCCR1B &= ~(1 << CS10);		// Disable timer 1
-	//	EIMSK |= (1 << INT1);		// Disable HSYNC external interrupt	
+		}
+		else if (measure_state == BLUE_MEASURE) {
+			measure_state = RED_MEASURE;
 
-	//	// Get data for right side of last line
+			device_state = REFRESH;
+		}
 
-	//	PORTB &= ~(1 << BLUE_CS);	// Set blue ADC in sample and hold mode	
-	//	
-	//	state = REFRESH;
-	//	break;
-	//case REFRESH:
-	//	
-	//	PORTB |= (1 << RED_CS);		// Set red ADC in convert mode
+	}
 
-	//	state = RED_AQUIRE;
-	//default:
-	//	state = IDLE;
-	//	break;
-	//}
+}
+
+// Start of HSYNC 
+ISR(TIMER2_COMPA_vect, ISR_NAKED)
+{
+	char cSREG = SREG;	// We templorary store our status register
+
+	EIMSK |= (1 << INT1);	// Enable HSYNC external interrupt	
+	TCCR2B = 0x00;			// Disable timer 2
+
+	SREG = cSREG;		// We restore our status register
+	reti();				// We jump back
 }
 
 // Falling edge HSYNC
-ISR(INT1_vect) {
-	//TCNT1	= 0;					// Set timer 1 to zero
-	//TCCR1B |= (1 << CS10);			// Enable timer 1 with a clock of 16MHz
-
-	PORTB |= (1 << GREEN_CS);		// Put the red adc in sample mode
-	PORTB |= (1 << GREEN_CS);		// Put the red adc in sample mode
-	PORTB |= (1 << GREEN_CS);		// Put the red adc in sample mode
-	PORTB &= ~(1 << GREEN_CS);	// Put the red adc in convert mode
-
-}
-
-// Begin of left sampling
-ISR(TIMER1_COMPA_vect) 
+ISR(INT1_vect, ISR_NAKED) 
 {
-	PORTB |= (1 << RED_CS);		// Put the red adc in sample mode
-	//startSample();
+	char cSREG = SREG;	// We templorary store our status register
+
+	TCNT1 = HSYNC_PULSE_WIDTH + HSYNC_INTERRUPT_DELAY;	// Set timer 1 to zero plus our offset due to falling edge triggering and trigger delay
+	TCCR1B |= (1 << CS10);								// Enable timer 1 with a clock of 16MHz
+	
+	SREG = cSREG;		// We restore our status register
+	reti();				// We jump back
 }
 
-// Begin of right sampling
-ISR(TIMER1_COMPB_vect) 
+// Begin of averaging
+ISR(TIMER1_COMPA_vect, ISR_NAKED)
 {
-	PORTB |= (1 << RED_CS);		// Put the red adc in sample mode
-	//startSample();
+	char cSREG = SREG;	// We templorary store our status register
+
+	PORTD &= ~(1 << MEASURE_S);	// We start averaging
+		
+	adc_data &= SPI.transfer(0xFF) << 2;
+	adc_data |= SPI.transfer(0xFF) >> 6;
+
+	SREG = cSREG;		// We restore our status register
+	reti();				// We jump back
 }
 
-// End of sampling time
-ISR(TIMER2_COMPA_vect) 
+// End of averaging start of sample
+ISR(TIMER1_COMPB_vect, ISR_NAKED)
 {
-	PORTB &= ~(1 << RED_CS);	// Put the red adc in convert mode
-	// stopSample();
+	char cSREG = SREG;	// We templorary store our status register
 
-	// TODO Start SPI transfer
+	if (measure_state == RED_MEASURE) {
+		PORTD |= (1 << RED_CS);			// Put red the adc in hold mode
+		PORTD |= (1 << RED_CS);			// Put red the adc in hold mode
+		PORTD &= ~(1 << RED_CS);		// Put the red adc in sample mode
+	}
+	else if (measure_state == GREEN_MEASURE) {
+		PORTD |= (1 << GREEN_CS);		// Put green the adc in hold mode
+		PORTD |= (1 << GREEN_CS);		// Put green the adc in hold mode
+		PORTD &= ~(1 << GREEN_CS);		// Put the green adc in sample mode
+	}
+	else if (measure_state == BLUE_MEASURE) {
+		PORTD |= (1 << BLUE_CS);		// Put blue the adc in hold mode
+		PORTD |= (1 << BLUE_CS);		// Put blue the adc in hold mode
+		PORTD &= ~(1 << BLUE_CS);		// Put the blue adc in sample mode
+	}
 
+	PORTD |= (1 << MEASURE_S);			// We end averaging
+
+	SREG = cSREG;		// We restore our status register
+	reti();				// We jump back
 }
 
-//void startSample(void) 
-//{
-//
-//	if (state == RED_AQUIRE) 
-//	{
-//		PORTB |= (1 << RED_CS);		// Put the red adc in sample mode
-//	} else if (state == GREEN_AQUIRE) 
-//	{
-//		PORTB |= (1 << GREEN_CS);	// Put the green adc in sample mode
-//	} else if (state == BLUE_AQUIRE) 
-//	{
-//		PORTB |= (1 << BLUE_CS);	// Put the blue adc in sample mode
-//	}
-//
-//	TCCR2B |= (1 << CS20);		// Start timer 2 with a clock of 16MHz
-//
-//}
-//
-//void stopSample(void) 
-//{
-//	
-//	if (state == RED_AQUIRE) 
-//	{
-//		PORTB &= ~(1 << RED_CS);	// Put the red adc in convert mode
-//	} else if (state == GREEN_AQUIRE) 
-//	{
-//		PORTB &= ~(1 << GREEN_CS);	// Put the green adc in convert mode
-//	} else if (state == BLUE_AQUIRE) 
-//	{
-//		PORTB &= ~(1 << BLUE_CS);	// Put the blue adc in convert mode
-//	}
-//
-//	TCCR2B &= ~(1 << CS20);			// Stop timer 2
-//	TCNT2 = 0;						// Set timer 2 to 0
-//
-//}
-
-//void someCallback() {
-//	initateSPITransfer();
-//}
-
-typedef enum { SPI_IDLE, FIRST_BYTE_TRANSFER, SECOND_BYTE_TRANSFER } spi_state_t;
-
-volatile spi_state_t spi_state = SPI_IDLE;
-volatile uint16_t *spi_data_buffer;
-void (*volatile spi_callback)(void);
-
-//// Reads the data from the selected ADC
-//void initateSPITransfer(unsigned char *buffer, void(*callback)(void))
-//{
-//	spi_data_buffer = buffer;
-//	spi_callback = callback;
-//	SPDR = 0xFF;					// Initiate transfer
-//}
-
-//// SPI transfer complete
-//ISR(SPI_STC_vect)
-//{
-//	
-//	if (spi_state == FIRST_BYTE_TRANSFER) 
-//	{
-//		*spi_data_buffer = SPDR << 6;
-//		spi_state = SECOND_BYTE_TRANSFER;
-//		SPDR = 0xFF;					// Initiate transfer
-//		return;
-//	}
-//		
-//	if (spi_state == SECOND_BYTE_TRANSFER)
-//	{
-//		*spi_data_buffer |= SPDR >> 1;                  
-//		spi_state = SPI_IDLE;
-//
-//		if (spi_callback != NULL)
-//		{
-//			*(spi_callback)();
-//		}
-//
-//		return;
-//	}
-//
-//
-//
-//
-//	//// op v-sync alles resetten?     en deze functie elke lijn aan roepen?
-//	//void which_led(){
-//	//	counterlinesperled++;
-//	//	if (counterlinesperled == NUM_LINES_PER_LED){
-//	//		led++
-//	//		counterlinesperled = 0;
-//	//	}	
-//	//}
-//
-//	//// color: means r g b. led: which led are we?  data_buffer is the *spi_data_buffer    kan dat?
-//	//void retrieve_and_set(char data_buffer, int led, char color, long linenumberled){
-//	//	//linkerkant
-//	//	leds[led].color = (linenumberled * leds[led].color + CRGB::data_buffer) / (linenumberled + 1);
-//	//	//rechterkant
-//	//	leds[NUM_LEDS-led].color = (linenumberled * leds[led].color + CRGB::data_buffer) / (linenumberled + 1);
-//	//}
-//	
-//}
