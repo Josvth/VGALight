@@ -17,9 +17,12 @@
 #define RIGHT_MEASURE	COLOUR_FRONT_PORCH + COLOUR_VISIBLE_AREA - MEASURE_TIME
 
 // Delays
+#define VSYNC_PULSE_WIDTH		20
 #define VSYNC_INTERRUPT_DELAY	20
+
 #define HSYNC_PULSE_WIDTH		28
 #define HSYNC_INTERRUPT_DELAY	12
+
 #define COMPARE_INTERRUPT_DELAY 21
 
 // We only use Port D for external triggers and pin changes
@@ -139,7 +142,9 @@ void convertADCData() {
 	}
 	else {
 		current_lines = 0;
-		current_led++;
+		if (current_led + 1 < NUM_LEDS / 2) {
+			current_led++;
+		}
 	}
 	adc_data = 0;
 }
@@ -148,37 +153,61 @@ void convertADCData() {
 ISR(INT0_vect) 
 {	
 	
-	if (device_state == IDLE) {
-		EIMSK |= (1 << INT1);						// Enable HSYNC external interrupt	
+	EIMSK &= ~(1 << INT1);						// Disable HSYNC external interrupt	
+	TCCR1B = 0x00;								// Disable timer 1
+
+	if (device_state == IDLE || device_state == REFRESH) {
+
+		TCNT2 = VSYNC_PULSE_WIDTH + VSYNC_INTERRUPT_DELAY;	// Set timer 2 to zero plus our offset due to falling edge triggering and trigger delay
+		TCCR2B |= (1 << CS22);								// Enable timer 2 with a clock of 16MHz / 64
+
 		device_state = MEASURE;
+
 	} else if (device_state == MEASURE) {
+		
 		convertADCData();
 		current_lines = 0;
 		current_led = 0;
 
 		if (measure_state == RED_MEASURE) {
 			measure_state = GREEN_MEASURE;
+
+			TCNT2 = VSYNC_PULSE_WIDTH + VSYNC_INTERRUPT_DELAY;	// Set timer 2 to zero plus our offset due to falling edge triggering and trigger delay
+			TCCR2B |= (1 << CS22);								// Enable timer 2 with a clock of 16MHz / 64
+
 		}
 		else if (measure_state == GREEN_MEASURE) {
 			measure_state = BLUE_MEASURE;
+
+			TCNT2 = VSYNC_PULSE_WIDTH + VSYNC_INTERRUPT_DELAY;	// Set timer 2 to zero plus our offset due to falling edge triggering and trigger delay
+			TCCR2B |= (1 << CS22);								// Enable timer 2 with a clock of 16MHz / 64
+
 		}
 		else if (measure_state == BLUE_MEASURE) {
-			EIMSK &= ~(1 << INT1);						// Disable HSYNC external interrupt	
-			TCCR1B &= ~(1 << CS10);						// Disable timer 1
 			measure_state = RED_MEASURE;
+
 			device_state = REFRESH;
 		}
-	} else if (device_state == REFRESH) {
-		EIMSK |= (1 << INT1);						// Enable HSYNC external interrupt	
-		device_state = MEASURE;
+
 	}
 
+}
+
+// Start of HSYNC 
+ISR(TIMER2_COMPA_vect, ISR_NAKED)
+{
+	char cSREG = SREG;	// We templorary store our status register
+
+	EIMSK |= (1 << INT1);	// Enable HSYNC external interrupt	
+	TCCR2B = 0x00;			// Disable timer 2
+
+	SREG = cSREG;		// We restore our status register
+	reti();				// We jump back
 }
 
 // Falling edge HSYNC
 ISR(INT1_vect, ISR_NAKED) 
 {
-	
 	char cSREG = SREG;	// We templorary store our status register
 
 	TCNT1 = HSYNC_PULSE_WIDTH + HSYNC_INTERRUPT_DELAY;	// Set timer 1 to zero plus our offset due to falling edge triggering and trigger delay
@@ -194,17 +223,7 @@ ISR(TIMER1_COMPA_vect, ISR_NAKED)
 	char cSREG = SREG;	// We templorary store our status register
 
 	PORTD &= ~(1 << MEASURE_S);	// We start averaging
-	
-	if (measure_state == RED_MEASURE) {
-		PORTD |= (1 << RED_CS);			// Put red the adc in hold mode
-	}
-	else if (measure_state == GREEN_MEASURE) {
-		PORTD |= (1 << GREEN_CS);		// Put green the adc in hold mode
-	}
-	else if (measure_state == BLUE_MEASURE) {
-		PORTD |= (1 << BLUE_CS);		// Put blue the adc in hold mode
-	}
-	
+		
 	adc_data &= SPI.transfer(0xFF) << 2;
 	adc_data |= SPI.transfer(0xFF) >> 6;
 
@@ -218,12 +237,18 @@ ISR(TIMER1_COMPB_vect, ISR_NAKED)
 	char cSREG = SREG;	// We templorary store our status register
 
 	if (measure_state == RED_MEASURE) {
+		PORTD |= (1 << RED_CS);			// Put red the adc in hold mode
+		PORTD |= (1 << RED_CS);			// Put red the adc in hold mode
 		PORTD &= ~(1 << RED_CS);		// Put the red adc in sample mode
 	}
 	else if (measure_state == GREEN_MEASURE) {
+		PORTD |= (1 << GREEN_CS);		// Put green the adc in hold mode
+		PORTD |= (1 << GREEN_CS);		// Put green the adc in hold mode
 		PORTD &= ~(1 << GREEN_CS);		// Put the green adc in sample mode
 	}
 	else if (measure_state == BLUE_MEASURE) {
+		PORTD |= (1 << BLUE_CS);		// Put blue the adc in hold mode
+		PORTD |= (1 << BLUE_CS);		// Put blue the adc in hold mode
 		PORTD &= ~(1 << BLUE_CS);		// Put the blue adc in sample mode
 	}
 
