@@ -8,9 +8,8 @@
 // [duration in us] / ([timer scaler] / 16MHz)
 
 // Timings	
-#define COLOUR_FRONT_PORCH		67		// = 4.2us / (1/16MHz)
-#define COLOUR_VISIBLE_AREA		250		//256		// = 16us  / (1/16MHz)
-#define COLOUR_BACK_PORCH		0
+#define COLOUR_FRONT_PORCH		75		
+#define COLOUR_VISIBLE_AREA		256		
 
 // Delays
 #define TIMER1_INITIAL_VALUE	46		// = 2.860 / (1/16MHz)
@@ -119,9 +118,7 @@ ISR(INT0_vect)
 	TCCR1B = 0x00;								// Disable timer 1
 
 	 if (device_state == REFRESH) {						// Previous state was refresh
-
-		PORTD |= (1 << BLUE_CS);						// Put red the adc in hold mode
-
+		 
 		device_state = MEASURE;							// Current state is measure
 
 		if (measure_state == RED_MEASURE) {				// Previous measure state was measuring red
@@ -136,8 +133,6 @@ ISR(INT0_vect)
 
 		EIMSK |= (1 << INT1);							// Enable HSYNC external interrupt	
 		
-		PORTD &= ~(1 << BLUE_CS);		// Put the green adc in sample mode
-
 		hsync_index = 0;							
 
 	} else if (device_state == MEASURE) {		// Previous state was a measure state
@@ -236,8 +231,7 @@ ISR(TIMER1_COMPB_vect, ISR_NAKED)
 	PORTD |= measure_state;				// Put the current adc in sample and hold mode
 	PORTD |= measure_state;				// Put the current adc in sample and hold mode
 	PORTD &= ~measure_state;			// Put the current adc in convert mode
-
-
+	
 	PORTD |= (1 << MEASURE_S);			// We end averaging
 
 	SREG = cSREG;		// We restore our status register
