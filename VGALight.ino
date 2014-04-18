@@ -9,12 +9,15 @@
 
 // Timings	
 #define COLOUR_FRONT_PORCH		75		
-#define COLOUR_VISIBLE_AREA		256		
+#define COLOUR_VISIBLE_AREA		250		
 
 // Delays
 #define TIMER1_INITIAL_VALUE	46		// = 2.860 / (1/16MHz)
-
 #define COMPARE_INTERRUPT_DELAY 2		// = 960ns / (1/16MHz)
+
+// Timer 1 compare values
+#define TIMER1_COMPARE_A		COLOUR_FRONT_PORCH - COMPARE_INTERRUPT_DELAY
+#define TIMER1_COMPARE_B		COLOUR_FRONT_PORCH + COLOUR_VISIBLE_AREA - COMPARE_INTERRUPT_DELAY
 
 // Port definitions
 #define VSYNC PORTD2
@@ -88,8 +91,8 @@ void setup(void)
 
 	TIMSK1 |= (1 << OCIE1B) | (1 << OCIE1A);						// Enable interrupt on compare A and B of timer 1
 
-	OCR1A = COLOUR_FRONT_PORCH - COMPARE_INTERRUPT_DELAY;
-	OCR1B = COLOUR_FRONT_PORCH + COLOUR_VISIBLE_AREA - COMPARE_INTERRUPT_DELAY;
+	OCR1A = TIMER1_COMPARE_A;
+	OCR1B = TIMER1_COMPARE_B;
 
 	// Setup external interrupts
 	EICRA |= (1 << ISC11) | (1 << ISC10) | (1 << ISC01);			// External interrupt on falling edge of VSYNC and HSYNC
